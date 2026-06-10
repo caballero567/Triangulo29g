@@ -378,9 +378,6 @@
 
 <script>
     // ======================== DATOS ORIGINALES ========================
-    // ⬇️⬇️⬇️⬇️⬇️⬇️⬇️⬇️⬇️⬇️⬇️⬇️⬇️⬇️⬇️⬇️⬇️⬇️⬇️⬇️⬇️⬇️⬇️⬇️⬇️⬇️⬇️⬇️⬇️⬇️⬇️⬇️⬇️⬇️⬇️⬇️⬇️⬇️⬇️⬇️⬇️⬇️
-    // 🔴🔴🔴 DESDE AQUÍ COMIENZA LA ZONA QUE DEBES REEMPLAZAR 🔴🔴🔴
-    // ⬇️⬇️⬇️⬇️⬇️⬇️⬇️⬇️⬇️⬇️⬇️⬇️⬇️⬇️⬇️⬇️⬇️⬇️⬇️⬇️⬇️⬇️⬇️⬇️⬇️⬇️⬇️⬇️⬇️⬇️⬇️⬇️⬇️⬇️⬇️⬇️⬇️⬇️⬇️⬇️⬇️⬇️
     const fullData = [
     {Canal:"Bodegas ", Tipo:"MIXTO", Vendedor:"01AN02", ClienteCodigo:"225515", cliente:"PINEDA REMON", Supervisor:"01 NESTARES", Dia:"sábado"},
     {Canal:"Bodegas ", Tipo:"MIXTO", Vendedor:"01AN03", ClienteCodigo:"004246", cliente:"CASTAÑEDA BA", Supervisor:"01 NESTARES", Dia:"sábado"},
@@ -5166,61 +5163,103 @@
     {Canal:"Bodegas ", Tipo:"TOP", Vendedor:"01TN19", ClienteCodigo:"002390", cliente:"VELAQUEZ APA", Supervisor:"01 TELLO.I", Dia:"lunes"},
     {Canal:"Bodegas ", Tipo:"TOP", Vendedor:"01TN19", ClienteCodigo:"316079", cliente:"CHINCHAY BRA", Supervisor:"01 TELLO.I", Dia:"jueves"},
 ];
-    // ⬆️⬆️⬆️⬆️⬆️⬆️⬆️⬆️⬆️⬆️⬆️⬆️⬆️⬆️⬆️⬆️⬆️⬆️⬆️⬆️⬆️⬆️⬆️⬆️⬆️⬆️⬆️⬆️⬆️⬆️⬆️⬆️⬆️⬆️⬆️⬆️⬆️⬆️⬆️⬆️⬆️⬆️
-    // 🔴🔴🔴 HASTA AQUÍ TERMINA LA ZONA QUE DEBES REEMPLAZAR 🔴🔴🔴
-    // ⬆️⬆️⬆️⬆️⬆️⬆️⬆️⬆️⬆️⬆️⬆️⬆️⬆️⬆️⬆️⬆️⬆️⬆️⬆️⬆️⬆️⬆️⬆️⬆️⬆️⬆️⬆️⬆️⬆️⬆️⬆️⬆️⬆️⬆️⬆️⬆️⬆️⬆️⬆️⬆️⬆️⬆️
-
-    // Optimización: Cache de referencias DOM
-    const DOM = {
-        supervisorSelect: document.getElementById('supervisorSelect'),
-        vendedorSelect: document.getElementById('vendedorDinamico'),
-        codigoInput: document.getElementById('codigoClienteInput'),
-        diaSelect: document.getElementById('diaVisitaSelect'),
-        cardContainer: document.getElementById('cardContainer'),
-        totalItems: document.getElementById('totalMobileItems'),
-        resultCounter: document.getElementById('resultCounter')
-    };
-
-    // Cache de datos precalculados para mejorar rendimiento
-    let supervisoresCache = null;
-    let vendedoresPorSupervisorCache = new Map();
-
-    function precalcularCaches() {
-        // Cache de supervisores únicos
-        if (!supervisoresCache) {
-            const supervisoresSet = new Set();
-            for (let i = 0; i < fullData.length; i++) {
-                const sup = fullData[i].Supervisor;
-                if (sup && sup.trim() !== "") {
-                    supervisoresSet.add(sup);
-                }
+    // ========== OPTIMIZACIÓN: ÍNDICES DE BÚSQUEDA ==========
+    // Creamos índices para búsqueda rápida (O(1) en lugar de O(n))
+    
+    // 1. Índice por Supervisor
+    const indexPorSupervisor = new Map();
+    // 2. Índice por Vendedor
+    const indexPorVendedor = new Map();
+    // 3. Índice por Día
+    const indexPorDia = new Map();
+    // 4. Índice por Código de Cliente (para búsqueda rápida)
+    const indexPorCodigo = new Map();
+    
+    // Llenar los índices
+    for (let i = 0; i < fullData.length; i++) {
+        const item = fullData[i];
+        const idx = i;
+        
+        // Índice por Supervisor
+        if (!indexPorSupervisor.has(item.Supervisor)) {
+            indexPorSupervisor.set(item.Supervisor, []);
+        }
+        indexPorSupervisor.get(item.Supervisor).push(idx);
+        
+        // Índice por Vendedor
+        if (!indexPorVendedor.has(item.Vendedor)) {
+            indexPorVendedor.set(item.Vendedor, []);
+        }
+        indexPorVendedor.get(item.Vendedor).push(idx);
+        
+        // Índice por Día
+        if (!indexPorDia.has(item.Dia)) {
+            indexPorDia.set(item.Dia, []);
+        }
+        indexPorDia.get(item.Dia).push(idx);
+        
+        // Índice por Código (para búsqueda parcial, guardamos el string)
+        indexPorCodigo.set(item.ClienteCodigo, idx);
+    }
+    
+    // Obtener lista de índices según filtros (intersección de conjuntos)
+    function getFilteredIndices(supervisor, vendedor, codigoCliente, dia) {
+        let indicesSet = null;
+        
+        // Función para intersectar conjuntos
+        function intersect(set1, set2) {
+            if (!set1) return new Set(set2);
+            if (!set2) return new Set(set1);
+            const result = new Set();
+            const smaller = set1.size <= set2.size ? set1 : set2;
+            const larger = set1.size <= set2.size ? set2 : set1;
+            for (let val of smaller) {
+                if (larger.has(val)) result.add(val);
             }
-            supervisoresCache = Array.from(supervisoresSet).sort();
+            return result;
         }
         
-        // Cache de vendedores por supervisor
-        vendedoresPorSupervisorCache.clear();
-        const tempMap = new Map();
-        for (let i = 0; i < fullData.length; i++) {
-            const item = fullData[i];
-            const sup = item.Supervisor;
-            const ven = item.Vendedor;
-            if (!tempMap.has(sup)) {
-                tempMap.set(sup, new Set());
+        // Aplicar filtro por Supervisor
+        if (supervisor !== "") {
+            const indices = indexPorSupervisor.get(supervisor) || [];
+            indicesSet = new Set(indices);
+        }
+        
+        // Aplicar filtro por Vendedor
+        if (vendedor !== "") {
+            const indices = indexPorVendedor.get(vendedor) || [];
+            const vendedorSet = new Set(indices);
+            indicesSet = intersect(indicesSet, vendedorSet);
+        }
+        
+        // Aplicar filtro por Día
+        if (dia !== "") {
+            const indices = indexPorDia.get(dia) || [];
+            const diaSet = new Set(indices);
+            indicesSet = intersect(indicesSet, diaSet);
+        }
+        
+        // Aplicar filtro por Código de Cliente (búsqueda parcial - requiere recorrido)
+        // Este es el único filtro que no podemos indexar completamente por búsqueda parcial
+        if (codigoCliente !== "") {
+            const filteredByCode = [];
+            const targetSet = indicesSet ? indicesSet : new Set(fullData.map((_, idx) => idx));
+            for (let idx of targetSet) {
+                if (fullData[idx].ClienteCodigo.toLowerCase().includes(codigoCliente)) {
+                    filteredByCode.push(idx);
+                }
             }
-            tempMap.get(sup).add(ven);
+            return filteredByCode;
         }
-        for (let [sup, vendedoresSet] of tempMap) {
-            vendedoresPorSupervisorCache.set(sup, Array.from(vendedoresSet).sort());
+        
+        // Si no hay filtros, devolver todos los índices
+        if (!indicesSet) {
+            return fullData.map((_, idx) => idx);
         }
-        // Para "todos" los supervisores
-        const allVendedoresSet = new Set();
-        for (let i = 0; i < fullData.length; i++) {
-            allVendedoresSet.add(fullData[i].Vendedor);
-        }
-        vendedoresPorSupervisorCache.set('__ALL__', Array.from(allVendedoresSet).sort());
+        
+        return Array.from(indicesSet);
     }
-
+    
     function escapeHtml(str) {
         if (!str) return '';
         return str.replace(/[&<>]/g, function(m) {
@@ -5230,85 +5269,76 @@
             return m;
         });
     }
-
+    
+    // Obtener supervisores únicos (desde los índices)
+    function getUniqueSupervisores() {
+        return Array.from(indexPorSupervisor.keys()).sort();
+    }
+    
     function populateSupervisores() {
-        precalcularCaches();
-        const selectEl = DOM.supervisorSelect;
+        const supervisores = getUniqueSupervisores();
+        const selectEl = document.getElementById('supervisorSelect');
         selectEl.innerHTML = '<option value="">Todos los supervisores</option>';
-        
-        for (let i = 0; i < supervisoresCache.length; i++) {
-            const sup = supervisoresCache[i];
+        for (let i = 0; i < supervisores.length; i++) {
             const option = document.createElement('option');
-            option.value = sup;
-            option.textContent = sup;
+            option.value = supervisores[i];
+            option.textContent = supervisores[i];
             selectEl.appendChild(option);
         }
     }
-
+    
     function getVendedoresBySupervisor(supervisorValue) {
         if (!supervisorValue) {
-            return vendedoresPorSupervisorCache.get('__ALL__') || [];
+            return Array.from(indexPorVendedor.keys()).sort();
         } else {
-            return vendedoresPorSupervisorCache.get(supervisorValue) || [];
+            const indices = indexPorSupervisor.get(supervisorValue) || [];
+            const vendedoresSet = new Set();
+            for (let i = 0; i < indices.length; i++) {
+                vendedoresSet.add(fullData[indices[i]].Vendedor);
+            }
+            return Array.from(vendedoresSet).sort();
         }
     }
-
+    
     function updateVendedorDropdown() {
-        const selectedSupervisor = DOM.supervisorSelect.value;
+        const selectedSupervisor = document.getElementById('supervisorSelect').value;
         const vendedoresList = getVendedoresBySupervisor(selectedSupervisor);
-        const vendedorSelect = DOM.vendedorSelect;
+        const vendedorSelect = document.getElementById('vendedorDinamico');
         const currentSelectedVendedor = vendedorSelect.value;
         
         vendedorSelect.innerHTML = '<option value="">Todos los vendedores</option>';
-        
         for (let i = 0; i < vendedoresList.length; i++) {
-            const v = vendedoresList[i];
             const option = document.createElement('option');
-            option.value = v;
-            option.textContent = v;
+            option.value = vendedoresList[i];
+            option.textContent = vendedoresList[i];
             vendedorSelect.appendChild(option);
         }
-        
         if (currentSelectedVendedor && vendedoresList.includes(currentSelectedVendedor)) {
             vendedorSelect.value = currentSelectedVendedor;
         } else {
             vendedorSelect.value = '';
         }
     }
-
-    function getFilteredData() {
-        const supervisor = DOM.supervisorSelect.value;
-        const vendedor = DOM.vendedorSelect.value;
-        const codigoCliente = DOM.codigoInput.value.trim().toLowerCase();
-        const dia = DOM.diaSelect.value;
+    
+    function renderCardsFromIndices(indices) {
+        const container = document.getElementById('cardContainer');
+        const totalSpan = document.getElementById('totalMobileItems');
+        const counterSpan = document.getElementById('resultCounter');
+        totalSpan.innerText = indices.length;
+        counterSpan.innerText = indices.length;
         
-        const result = [];
-        for (let i = 0; i < fullData.length; i++) {
-            const item = fullData[i];
-            if (supervisor !== "" && item.Supervisor !== supervisor) continue;
-            if (vendedor !== "" && item.Vendedor !== vendedor) continue;
-            if (codigoCliente !== "" && !item.ClienteCodigo.toLowerCase().includes(codigoCliente)) continue;
-            if (dia !== "" && item.Dia !== dia) continue;
-            result.push(item);
-        }
-        return result;
-    }
-
-    function renderCards(dataArr) {
-        const container = DOM.cardContainer;
-        const totalSpan = DOM.totalItems;
-        const counterSpan = DOM.resultCounter;
-        totalSpan.innerText = dataArr.length;
-        counterSpan.innerText = dataArr.length;
-
-        if (dataArr.length === 0) {
+        if (indices.length === 0) {
             container.innerHTML = `<div class="empty-state-mobile"><i class="fas fa-chart-simple" style="font-size: 2rem; opacity:0.7;"></i><p style="margin-top: 12px;">Sin resultados<br>Ajusta los filtros</p></div>`;
             return;
         }
-
+        
+        // Usar DocumentFragment para mejor rendimiento
+        const fragment = document.createDocumentFragment();
+        const tempDiv = document.createElement('div');
+        
         let html = '';
-        for (let i = 0; i < dataArr.length; i++) {
-            const item = dataArr[i];
+        for (let i = 0; i < indices.length; i++) {
+            const item = fullData[indices[i]];
             html += `
                 <div class="route-card">
                     <div class="card-badge-row">
@@ -5329,37 +5359,49 @@
         }
         container.innerHTML = html;
     }
-
+    
     function applyFilters() {
-        const filtered = getFilteredData();
-        renderCards(filtered);
+        const supervisor = document.getElementById('supervisorSelect').value;
+        const vendedor = document.getElementById('vendedorDinamico').value;
+        const codigoCliente = document.getElementById('codigoClienteInput').value.trim().toLowerCase();
+        const dia = document.getElementById('diaVisitaSelect').value;
+        
+        const indices = getFilteredIndices(supervisor, vendedor, codigoCliente, dia);
+        renderCardsFromIndices(indices);
     }
-
+    
     function resetFilters() {
-        DOM.supervisorSelect.value = '';
+        document.getElementById('supervisorSelect').value = '';
         updateVendedorDropdown();
-        DOM.vendedorSelect.value = '';
-        DOM.codigoInput.value = '';
-        DOM.diaSelect.value = '';
-        renderCards(fullData);
+        document.getElementById('vendedorDinamico').value = '';
+        document.getElementById('codigoClienteInput').value = '';
+        document.getElementById('diaVisitaSelect').value = '';
+        renderCardsFromIndices(fullData.map((_, idx) => idx));
     }
-
+    
     function onSupervisorChange() {
         updateVendedorDropdown();
         applyFilters();
     }
-
+    
     document.addEventListener('DOMContentLoaded', () => {
         populateSupervisores();
         updateVendedorDropdown();
-        renderCards(fullData);
+        renderCardsFromIndices(fullData.map((_, idx) => idx));
         
-        DOM.supervisorSelect.addEventListener('change', onSupervisorChange);
-        DOM.vendedorSelect.addEventListener('change', () => applyFilters());
-        DOM.codigoInput.addEventListener('keypress', (e) => { if(e.key === 'Enter') applyFilters(); });
-        DOM.diaSelect.addEventListener('change', () => applyFilters());
-        document.getElementById('applyFiltersBtn').addEventListener('click', applyFilters);
-        document.getElementById('resetFiltersBtn').addEventListener('click', resetFilters);
+        const supervisorEl = document.getElementById('supervisorSelect');
+        const vendedorEl = document.getElementById('vendedorDinamico');
+        const codigoInput = document.getElementById('codigoClienteInput');
+        const diaSelect = document.getElementById('diaVisitaSelect');
+        const applyBtn = document.getElementById('applyFiltersBtn');
+        const resetBtn = document.getElementById('resetFiltersBtn');
+        
+        supervisorEl.addEventListener('change', onSupervisorChange);
+        vendedorEl.addEventListener('change', () => applyFilters());
+        codigoInput.addEventListener('keypress', (e) => { if(e.key === 'Enter') applyFilters(); });
+        diaSelect.addEventListener('change', () => applyFilters());
+        applyBtn.addEventListener('click', applyFilters);
+        resetBtn.addEventListener('click', resetFilters);
     });
 </script>
 </body>
